@@ -2,9 +2,9 @@ Blood Bank AI Chatbot
 
 An intelligent AI-powered chatbot that helps users learn about blood donation, find donation centers, and get real-time information about blood supply status. Built with AWS Bedrock Knowledge Base and a modern React frontend.
 
-## Demo Video
+## Demo
 
-<video controls src="docs/media/Blood Bank Project - AI Assistant - Brave 2026-06-18 21-55-28.mp4" title="Title"></video>
+![Blood Bank AI Chatbot Demo](docs/media/Demo.gif)
 
 
 ## Disclaimers
