@@ -1,0 +1,13 @@
+# Knowledge Base - Web Crawler Seed URLs
+#
+# Add the reference URLs you want the chatbot's Knowledge Base to crawl.
+# One URL per line. Lines beginning with "#" are comments and are ignored,
+# as are blank lines.
+#
+# These URLs are read at deploy time and used as the seed URLs for the
+# Bedrock Knowledge Base web crawler data source. If this file has no URLs,
+# the website data source is skipped entirely.
+#
+# Example:
+# https://example.org/
+# https://example.org/faqs/

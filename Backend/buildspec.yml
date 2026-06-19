@@ -1,0 +1,282 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+      python: 3.11
+    commands:
+      - echo "Installing AWS CDK CLI..."
+      - npm install -g aws-cdk@latest
+      - cd Backend
+      - npm install
+
+  pre_build:
+    commands:
+      - echo "=== Building TypeScript ==="
+      - npm run build
+      - echo "✅ TypeScript build completed"
+      - echo "=== Installing Lambda dependencies ==="
+      - cd lambda/chat-lambda-streaming && npm cache clean --force && npm install --legacy-peer-deps && cd ../..
+      - cd lambda/daily-sync-lambda && pip install -r requirements.txt -t . && cd ../..
+      - cd lambda/sync-operations && pip install -r requirements.txt -t . && cd ../..
+      - echo "✅ Lambda dependencies installed"
+      - echo "=== Bootstrapping CDK Environment ==="
+      - |
+        # Set default PROJECT_NAME for bootstrap if not provided
+        if [ -z "$PROJECT_NAME" ]; then
+          PROJECT_NAME="blood-bank"
+        fi
+        cdk bootstrap --require-approval never \
+          --context projectName="$PROJECT_NAME" \
+          --context modelId="${MODEL_ID:-global.anthropic.claude-sonnet-4-5-20250929-v1:0}" \
+          --context embeddingModelId="${EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v1}"
+      - echo "✅ CDK Bootstrap completed"
+
+  build:
+    commands:
+      - |
+        if [ "$ACTION" = "destroy" ]; then
+          echo "=== Destroying Stack ==="
+          cdk destroy BloodBankBedrockStack --force \
+            --context projectName="$PROJECT_NAME" \
+            --context modelId="$MODEL_ID" \
+            --context embeddingModelId="$EMBEDDING_MODEL_ID"
+          echo "✅ Stack destroyed successfully"
+        else
+          echo "========================================="
+          echo "Deploying Blood Bank Bedrock Chatbot"
+          echo "========================================="
+          
+          echo "=== CDK Infrastructure Deployment ==="
+          
+          # Set default PROJECT_NAME if not provided
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="blood-bank"
+            echo "🔍 Using default PROJECT_NAME: $PROJECT_NAME"
+          else
+            echo "🔍 Using provided PROJECT_NAME: $PROJECT_NAME"
+          fi
+          
+          cdk deploy BloodBankBedrockStack --require-approval never \
+            --context projectName="$PROJECT_NAME" \
+            --context modelId="$MODEL_ID" \
+            --context embeddingModelId="$EMBEDDING_MODEL_ID" \
+            --outputs-file outputs.json
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ ERROR: CDK deployment failed"
+            exit 1
+          fi
+          
+          echo "✅ CDK deployment successful"
+          
+          echo "=== Extracting CDK Outputs ==="
+          STACK_NAME="BloodBankBedrockStack"
+          DOCUMENTS_BUCKET=$(cat outputs.json | jq -r '.BloodBankBedrockStack.DocumentsBucketName // empty')
+          KB_ID=$(cat outputs.json | jq -r '.BloodBankBedrockStack.KnowledgeBaseId // empty')
+          LAMBDA_URL=$(cat outputs.json | jq -r '.BloodBankBedrockStack.ChatLambdaFunctionUrl // empty')
+          OPENSEARCH_ENDPOINT=$(cat outputs.json | jq -r '.BloodBankBedrockStack.OpenSearchCollectionEndpoint // empty')
+          
+          if [ -z "$DOCUMENTS_BUCKET" ] || [ -z "$KB_ID" ] || [ -z "$LAMBDA_URL" ]; then
+            echo "❌ ERROR: Failed to extract required outputs from CDK deployment"
+            echo "Documents Bucket: $DOCUMENTS_BUCKET"
+            echo "Knowledge Base ID: $KB_ID"
+            echo "Lambda Function URL: $LAMBDA_URL"
+            exit 1
+          fi
+          
+          echo "✅ Outputs extracted successfully"
+          echo "  📁 Documents Bucket: $DOCUMENTS_BUCKET"
+          echo "  🧠 Knowledge Base ID: $KB_ID"
+          echo "  🌐 Lambda Function URL: $LAMBDA_URL"
+          echo "  🔍 OpenSearch Endpoint: $OPENSEARCH_ENDPOINT"
+          
+          echo ""
+          echo "=== Starting Knowledge Base Ingestion (Background) ==="
+          
+          # Start sequential sync using Step Functions state machine
+          echo "Starting Step Functions workflow for sequential sync..."
+          
+          # Get Step Functions State Machine ARN from CDK outputs
+          STATE_MACHINE_ARN=$(cat outputs.json | jq -r '.BloodBankBedrockStack.SequentialSyncStateMachineArn // empty')
+          
+          if [ -n "$STATE_MACHINE_ARN" ] && [ "$STATE_MACHINE_ARN" != "empty" ]; then
+            echo "✅ Found Step Functions State Machine: $STATE_MACHINE_ARN"
+            
+            # Start Step Functions execution asynchronously
+            EXECUTION_ARN=$(aws stepfunctions start-execution \
+              --state-machine-arn "$STATE_MACHINE_ARN" \
+              --name "deployment-sync-$(date +%s)" \
+              --input '{"sync_type":"deployment","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
+              --region "$CDK_DEFAULT_REGION" \
+              --query 'executionArn' \
+              --output text)
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Step Functions workflow started successfully"
+              echo "📊 Execution ARN: $EXECUTION_ARN"
+              echo "🔄 Sync order: PDF Documents → Daily Sync → Website Content"
+              echo "⏱️ Workflow will handle all waiting and sequencing automatically"
+              echo "💰 Cost optimized: Only pay for actual state transitions"
+              echo "🎯 No Lambda timeout issues - can run for hours"
+            else
+              echo "⚠️ Failed to start Step Functions workflow, but continuing deployment"
+            fi
+          else
+            echo "⚠️ Step Functions State Machine not found, skipping background sync"
+          fi
+          
+          echo ""
+          echo "=== Amplify App Setup ==="
+          
+          # Get Amplify App ID from CDK outputs
+          AMPLIFY_APP_ID=$(cat outputs.json | jq -r '.BloodBankBedrockStack.AmplifyAppId // empty')
+          
+          if [ -n "$AMPLIFY_APP_ID" ] && [ "$AMPLIFY_APP_ID" != "empty" ]; then
+            echo "✅ Amplify App created via CDK: $AMPLIFY_APP_ID"
+            echo "📱 Amplify App URL: https://main.$AMPLIFY_APP_ID.amplifyapp.com"
+          else
+            echo "⚠️ Amplify App ID not found in CDK outputs"
+          fi
+          
+          echo ""
+          echo "=== Frontend Build and Automated Deployment ==="
+          
+          # Check if Frontend directory exists
+          if [ -d "../Frontend" ]; then
+            cd ../Frontend
+            
+            # Set up environment variables
+            export PUBLIC_URL=""
+            export GENERATE_SOURCEMAP=false
+            echo "REACT_APP_API_BASE_URL=$LAMBDA_URL" > .env.production
+            echo "REACT_APP_CHAT_ENDPOINT=$LAMBDA_URL" >> .env.production
+            echo "REACT_APP_HEALTH_ENDPOINT=$LAMBDA_URL" >> .env.production
+            echo "REACT_APP_USER_POOL_ID=$(cat ../Backend/outputs.json | jq -r '.BloodBankBedrockStack.AdminUserPoolId // empty')" >> .env.production
+            echo "REACT_APP_USER_POOL_CLIENT_ID=$(cat ../Backend/outputs.json | jq -r '.BloodBankBedrockStack.AdminUserPoolClientId // empty')" >> .env.production
+            echo "REACT_APP_AWS_REGION=$CDK_DEFAULT_REGION" >> .env.production
+            echo "PUBLIC_URL=" >> .env.production
+            echo "GENERATE_SOURCEMAP=false" >> .env.production
+            
+            # Clean and build
+            rm -rf build/ node_modules/.cache/
+            npm install
+            npm run build
+            
+            if [ ! -f "build/index.html" ]; then
+              echo "❌ ERROR: Build failed - index.html not found!"
+              exit 1
+            fi
+            
+            if grep -q "%PUBLIC_URL%" build/index.html; then
+              echo "❌ ERROR: Build incomplete - %PUBLIC_URL% not replaced!"
+              exit 1
+            fi
+            
+            echo "✅ Build successful"
+            
+            # Create deployment package
+            cd build
+            zip -r ../build.zip . -x "*.DS_Store" "*.map"
+            cd ..
+            
+            # Upload to builds bucket
+            BUILD_KEY="builds/build-$(date +%s).zip"
+            BUILDS_BUCKET=$(cat ../Backend/outputs.json | jq -r '.BloodBankBedrockStack.BuildsBucketName // empty')
+            
+            if [ -n "$BUILDS_BUCKET" ] && [ "$BUILDS_BUCKET" != "empty" ]; then
+              aws s3 cp build.zip "s3://$BUILDS_BUCKET/$BUILD_KEY"
+              echo "✅ Build artifact uploaded to S3: $BUILD_KEY"
+              
+              # Use direct Amplify deployment (no Lambda needed)
+              aws amplify start-deployment \
+                --app-id "$AMPLIFY_APP_ID" \
+                --branch-name "main" \
+                --source-url "s3://$BUILDS_BUCKET/$BUILD_KEY" \
+                --region "$CDK_DEFAULT_REGION"
+              echo "✅ Direct Amplify deployment started"
+              
+              echo "🚀 Automated deployment initiated"
+              echo "📱 Amplify App URL: https://main.$AMPLIFY_APP_ID.amplifyapp.com"
+            else
+              echo "⚠️ Builds bucket not found, skipping S3 upload"
+            fi
+            
+            cd ../Backend
+          else
+            echo "⚠️ Frontend directory not found, skipping frontend deployment"
+          fi
+          
+          echo ""
+          echo "========================================="
+          echo "✅ Deployment Complete!"
+          echo "========================================="
+          echo "🧠 Knowledge Base ID: $KB_ID"
+          echo "📁 Documents Bucket: $DOCUMENTS_BUCKET"
+          echo "🔍 OpenSearch Endpoint: $OPENSEARCH_ENDPOINT"
+          echo "🌐 Lambda Function URL: $LAMBDA_URL"
+          echo "📱 Frontend URL: https://main.$AMPLIFY_APP_ID.amplifyapp.com"
+          echo "🚀 Deployment Type: CDK-managed Amplify App"
+          echo "⏰ Daily Sync: Automated at 2 AM UTC via EventBridge + Lambda"
+          echo "🎯 Streaming: Enabled via Lambda Function URL"
+          echo "========================================="
+          echo ""
+          echo "========================================="
+          echo "📋 Next Steps"
+          echo "========================================="
+          echo "1️⃣ Wait 5-10 minutes for ingestion jobs to complete"
+          echo ""
+          echo "2️⃣ Test the API:"
+          echo "   curl -X POST $LAMBDA_URL \\"
+          echo "     -H 'Content-Type: application/json' \\"
+          echo "     -d '{\"message\":\"How many people donate blood?\",\"language\":\"en\"}'"
+          echo ""
+          echo "3️⃣ Test Spanish support:"
+          echo "   curl -X POST $LAMBDA_URL \\"
+          echo "     -H 'Content-Type: application/json' \\"
+          echo "     -d '{\"message\":\"¿Cuántas personas donan sangre?\",\"language\":\"es\"}'"
+          echo ""
+          echo "4️⃣ Monitor ingestion jobs:"
+          echo "   aws bedrock-agent list-ingestion-jobs \\"
+          echo "     --knowledge-base-id $KB_ID \\"
+          echo "     --region $CDK_DEFAULT_REGION"
+          echo ""
+          echo "5️⃣ Add more documents:"
+          echo "   aws s3 cp document.pdf s3://$DOCUMENTS_BUCKET/pdfs/"
+          echo "   # Then trigger manual sync via admin dashboard"
+          echo ""
+          echo "📊 Monitor resources:"
+          echo "  • Knowledge Base: https://console.aws.amazon.com/bedrock/home?region=${CDK_DEFAULT_REGION}#/knowledge-bases"
+          echo "  • OpenSearch: https://console.aws.amazon.com/aos/home?region=${CDK_DEFAULT_REGION}#opensearch/collections"
+          echo "  • S3 Bucket: https://s3.console.aws.amazon.com/s3/buckets/$DOCUMENTS_BUCKET"
+          echo "  • Daily Sync Lambda: https://console.aws.amazon.com/lambda/home?region=${CDK_DEFAULT_REGION}#/functions"
+          echo "  • EventBridge Rules: https://console.aws.amazon.com/events/home?region=${CDK_DEFAULT_REGION}#/rules"
+          echo ""
+          echo "💰 Estimated monthly cost: $5-15 (vs $20+ for Q Business, no API Gateway charges)"
+          echo "🎯 Features: Dual data sources, bilingual support, automatic web crawling, streaming responses"
+          echo "🚀 Frontend: Automatically deployed to Amplify (no GitHub required)"
+          echo "⏰ Daily Sync: Fully automated - runs daily at 2 AM UTC for fresh blood supply data"
+          echo "⚡ Streaming: Lambda Function URL with response streaming for better UX"
+          echo ""
+        fi
+
+  post_build:
+    commands:
+      - echo "========================================="
+      - echo "🎉 Deployment Complete"
+      - echo "========================================="
+      - |
+        if [ "$ACTION" = "deploy" ]; then
+          echo "✅ Bedrock chatbot deployed successfully"
+          echo "📊 Check CloudWatch Logs for Lambda execution details"
+          echo "🧠 Test Knowledge Base retrieval via the chat API"
+          echo "🌐 Monitor ingestion jobs in Bedrock console"
+        else
+          echo "✅ Stack destroyed successfully"
+        fi
+
+artifacts:
+  files:
+    - "**/*"
+  base-directory: "Backend/cdk.out"

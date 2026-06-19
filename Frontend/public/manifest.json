@@ -1,0 +1,16 @@
+{
+  "short_name": "Blood Bank Project",
+  "name": "Blood Bank Project AI Assistant",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#8C1D40",
+  "background_color": "#F5F8FA",
+  "description": "AI-powered assistant for blood donation information and support"
+}

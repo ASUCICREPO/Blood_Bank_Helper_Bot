@@ -1,0 +1,13 @@
+# Knowledge Base - Daily Sync Seed URLs
+#
+# Add the frequently-updated reference URLs you want re-crawled every day
+# at 2 PM EST (e.g. pages whose content changes often).
+# One URL per line. Lines beginning with "#" are comments and are ignored,
+# as are blank lines.
+#
+# These URLs are read at deploy time and used as the seed URLs for the
+# daily-sync data source. If this file has no URLs, the daily-sync data
+# source is skipped entirely.
+#
+# Example:
+# https://example.org/live-status/

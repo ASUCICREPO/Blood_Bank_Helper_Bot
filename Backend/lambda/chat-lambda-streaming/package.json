@@ -1,0 +1,16 @@
+{
+  "name": "chat-lambda-streaming",
+  "version": "1.0.0",
+  "description": "Streaming chat Lambda",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.600.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.600.0",
+    "@aws-sdk/client-bedrock-agent": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/util-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0"
+  }
+}

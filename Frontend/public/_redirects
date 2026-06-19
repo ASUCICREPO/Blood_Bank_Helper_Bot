@@ -1,0 +1,4 @@
+# Amplify SPA redirect rules
+# Handle client-side routing
+/admin /index.html 200
+/* /index.html 200
