@@ -225,18 +225,6 @@ export class BedrockChatbotStack extends cdk.Stack {
             ],
           },
           {
-            name: 'ProfessionalAdvice',
-            type: 'DENY',
-            definition:
-              'Individualized medical, legal, or financial advice, diagnoses, or treatment recommendations. General educational info about blood donation is allowed; personalized professional advice is not.',
-            examples: [
-              'Based on my symptoms, what disease do I have?',
-              'Should I stop taking my prescribed medication before donating?',
-              'What stocks should I invest in?',
-              'Can you give me legal advice about suing my employer?',
-            ],
-          },
-          {
             name: 'SystemPromptDisclosure',
             type: 'DENY',
             definition:
