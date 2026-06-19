@@ -4,9 +4,8 @@ An intelligent AI-powered chatbot that helps users learn about blood donation, f
 
 ## Demo Video
 
-<p align="center">
-  <img src="./docs/media/Demo.gif" alt="Blood Bank AI Chatbot Demo" width="640" />
-</p>
+<video controls src="docs/media/Blood Bank Project - AI Assistant - Brave 2026-06-18 21-55-28.mp4" title="Title"></video>
+
 
 ## Disclaimers
 Customers are responsible for making their own independent assessment of the information in this document.
