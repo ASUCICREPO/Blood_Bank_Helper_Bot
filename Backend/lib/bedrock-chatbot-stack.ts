@@ -16,6 +16,7 @@ import { opensearchserverless, opensearch_vectorindex } from '@cdklabs/generativ
 import { Construct } from 'constructs';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 /**
  * Reads seed URLs for a web crawler data source from a sources file.
@@ -184,7 +185,7 @@ export class BedrockChatbotStack extends cdk.Stack {
     // Protects the assistant against prompt injection/jailbreaks, harmful content,
     // sensitive (PII) data exposure, and off-task topics. Applied on both the
     // user input and the model output during InvokeModelWithResponseStream.
-    const guardrail = new bedrock.CfnGuardrail(this, 'ChatGuardrail', {
+    const guardrailConfig: bedrock.CfnGuardrailProps = {
       name: `${projectName}-chat-guardrail`,
       description: 'Guardrail for the blood donation assistant: prompt-attack defense, harmful content filtering, PII protection, and topic restriction.',
       // Shown to the user when their prompt is blocked.
@@ -256,12 +257,27 @@ export class BedrockChatbotStack extends cdk.Stack {
       wordPolicyConfig: {
         managedWordListsConfig: [{ type: 'PROFANITY' }],
       },
-    });
+    };
+
+    const guardrail = new bedrock.CfnGuardrail(this, 'ChatGuardrail', guardrailConfig);
+
+    // Guardrail versions are immutable: a CfnGuardrailVersion only publishes a new
+    // version when the resource itself changes. Editing the guardrail's policies
+    // does NOT, on its own, republish — so the Lambda would keep invoking a stale
+    // version. We hash the guardrail configuration and fold that hash into the
+    // version construct's logical ID (and description) so that ANY change to the
+    // guardrail forces a brand-new version to be published, and the Lambda's
+    // GUARDRAIL_VERSION (guardrailVersion.attrVersion) is repointed to it.
+    const guardrailConfigHash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(guardrailConfig))
+      .digest('hex')
+      .slice(0, 12);
 
     // Publish an immutable version of the guardrail to reference at invocation time.
-    const guardrailVersion = new bedrock.CfnGuardrailVersion(this, 'ChatGuardrailVersion', {
+    const guardrailVersion = new bedrock.CfnGuardrailVersion(this, `ChatGuardrailVersion${guardrailConfigHash}`, {
       guardrailIdentifier: guardrail.attrGuardrailId,
-      description: 'Published version used by the chat Lambda.',
+      description: `Published version used by the chat Lambda (config ${guardrailConfigHash}).`,
     });
 
     // ===== Lambda Role for Chat Function =====
