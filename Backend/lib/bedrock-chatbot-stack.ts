@@ -209,22 +209,8 @@ export class BedrockChatbotStack extends cdk.Stack {
         ],
       },
 
-      // --- Denied topics: keep the assistant on its blood-donation task ---
       topicPolicyConfig: {
         topicsConfig: [
-          {
-            name: 'OffTopicRequests',
-            type: 'DENY',
-            definition:
-              'Any request unrelated to blood donation, donor eligibility, the blood supply, transfusions, or Americas Blood Centers, such as general knowledge, coding, news, or entertainment.',
-            examples: [
-              'Write me a poem about the ocean.',
-              'What is the capital of France?',
-              'Help me write Python code to sort a list.',
-              'Who is going to win the next election?',
-              'Tell me a joke about cats.',
-            ],
-          },
           {
             name: 'SystemPromptDisclosure',
             type: 'DENY',
